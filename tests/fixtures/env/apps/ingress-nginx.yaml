@@ -1,18 +1,13 @@
 apps:
     ingress-nginx:
-        maxBodySize: 1024m
-        private:
+        _rawValues:
+            controller:
+                config:
+                    modsecurity-snippet: |
+                        SecRuleRemoveById 911100
+        modsecurity:
             enabled: true
-            resources:
-                limits:
-                    cpu: 200m
-                    memory: 256Mi
-                requests:
-                    cpu: 100m
-                    memory: 192Mi
-            service:
-                annotations:
-                    private: 'true'
+        maxBodySize: 1024m
         resources:
             limits:
                 cpu: 200m

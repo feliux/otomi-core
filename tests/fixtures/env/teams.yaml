@@ -13,3 +13,10 @@ teamConfig:
             groupMapping: somesecretvalue
         resourceQuota:
             services.loadbalancers: '1'
+        selfService:
+            apps: []
+            service:
+                - ingress
+                - networkPolicy
+            team:
+                - alerts

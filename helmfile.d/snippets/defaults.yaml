@@ -3,7 +3,7 @@ environments:
     values:
       - azure:
           appgw:
-            isManaged: true
+            isManaged: false
         apps:
           alertmanager:
             enabled: false
@@ -16,6 +16,8 @@ environments:
               targetCPUUtilizationPercentage: 50
           cert-manager:
             issuer: custom-ca
+          cluster-overprovisioner:
+            enabled: false
           demo-tlspass:
             enabled: false
           drone:
@@ -26,7 +28,7 @@ environments:
               provider: gitea
               username: otomi-admin
           external-dns:
-            domainFilters: []
+            logLevel: info
           external-secrets:
             logLevel: info
             pollingInterval: 60000
@@ -141,7 +143,25 @@ environments:
             enabled: false
           vault:
             enabled: false
+            resources:
+              limits:
+                cpu: "1000m"
+                memory: 512Mi
+              requests:
+                cpu: 500m
+                memory: 256Mi
+          velero:
+            enabled: false
+            logLevel: info
+        backup:
+          platformSchedule:
+            enabled: false
+          teamSchedule:
+            enabled: false
         cluster: {}
+        dns:
+          domainFilters: []
+          zoneIdFilters: []
         ingress:
           platformClass:
             className: platform
@@ -153,7 +173,6 @@ environments:
           hasExternalDNS: false
           hasExternalIDP: false
           isHomeMonitored: false
-          isManaged: true
           isMultitenant: false
         teamConfig: {}
         letsencryptRootCA: |

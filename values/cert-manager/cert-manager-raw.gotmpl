@@ -7,21 +7,27 @@
 {{- $issuerName := ternary (printf "%s-%s" $cm.issuer ($cm | get "stage" "")) $cm.issuer (eq $cm.issuer "letsencrypt") }}
 {{- $doms := tpl (readFile "../../helmfile.d/snippets/domains.gotmpl") $v | fromYaml }}
 resources:
-{{- if or ($p | get "azure.aadClientSecret" nil) ($p | get "google.serviceAccountKey" nil) ($p | get "aws.secretAccessKey" nil) }}
+
+{{- if $v.otomi.hasExternalDNS }}
   - apiVersion: v1
     kind: Secret
     metadata:
-      name: "dns-secret"
+      name: "external-dns"
     data:
       {{- if hasKey $p "google" }}
       secret: "{{ $p.google.serviceAccountKey | b64enc }}"
-      {{- else if hasKey $p "azure" }}
+      {{- else if or (hasKey $p "azure-private-dns") }}
+      secret: "{{ $p | get "azure-private-dns.aadClientSecret" | b64enc }}"
+      {{- else if or (hasKey $p "azure") }}
       secret: "{{ $p.azure.aadClientSecret | b64enc }}"
-      {{- else if hasKey $p "aws" }}
-      secret: "{{ $p.aws.secretAccessKey | b64enc }}"
+      {{- else if ($p | get "$p.aws.credentials.secretKey" nil) }}
+      secret: "{{ $p.aws.credentials.secretKey | b64enc }}"
+      {{- else if hasKey $p "digitalocean" }}
+      secret: "{{ $p.digitalocean.apiToken | b64enc }}"
+      {{- else if hasKey $p "cloudflare" }}
+      secret: "{{ $p.cloudflare.apiToken | b64enc }}"
       {{- end }}
 {{- end }}
-
   - apiVersion: cert-manager.io/v1
     kind: ClusterIssuer
     metadata:
@@ -45,11 +51,13 @@ resources:
             dns01:
               {{- with $p | get "aws" nil }}
               route53:
-                {{- if and (hasKey . "accessKeyID") (hasKey . "secretAccessKey") }}
-                accessKeyID: {{ .accessKeyID }}
+                {{- with . | get "credentials.accessKey" nil }}
+                accessKeyID: {{ . }}
+                {{- end }}
+                {{- if . | get "credentials.secretKey" nil }}
                 secretAccessKeySecretRef:
                   key: secret
-                  name: "dns-secret"
+                  name: external-dns
                 {{- end }}
                 region: {{ .region }}
                 {{- with . | get "role" nil }}
@@ -63,27 +71,55 @@ resources:
                 {{- if hasKey . "aadClientId" }}
                 tenantID: {{ .tenantId }}
                 clientID: {{ .aadClientId }}
-                clientSecretSecretRef:
-                  key: secret
-                  name: "dns-secret"
-                {{- end }}
-                {{- if . | get "useManagedIdentityExtension" false }}
-                managedIdentity:
-                  clientID: {{ .userAssignedIdentityID }}
                 {{- end }}
                 {{- with . | get "hostedZoneName" nil }}
                 hostedZoneName: {{ . }}
                 {{- end }}
-                {{- with . | get "environment" nil }}
-                environment: {{ . }}
+                clientSecretSecretRef:
+                  key: secret
+                  name: external-dns
+              {{- end }}
+              {{- with $p | get "azure-private-dns" nil }}
+              azureDNS:
+                resourceGroupName: {{ .resourceGroup }}
+                subscriptionID: {{ .subscriptionId }}
+                {{- if hasKey . "aadClientId" }}
+                tenantID: {{ .tenantId }}
+                clientID: {{ .aadClientId }}
                 {{- end }}
+                {{- with . | get "hostedZoneName" nil }}
+                hostedZoneName: {{ . }}
+                {{- end }}
+                clientSecretSecretRef:
+                  key: secret
+                  name: external-dns
+              {{- end }}
+              {{- with $p | get "cloudflare" nil }}
+              cloudflare:
+                {{- with . | get "apiToken" nil }}
+                apiTokenSecretRef:
+                {{- end }}
+                {{- with . | get "apiSecret" nil }}
+                apiKeySecretRef:
+                {{- end }}
+                  key: secret
+                  name: external-dns
+              {{- end }}
+              {{- with $p | get "digitalocean" nil }}
+              digitalocean:
+                tokenSecretRef:
+                  key: secret
+                  name: external-dns
               {{- end }}
               {{- with $p | get "google" nil }}
               cloudDNS:
                 project: {{ .project }}
                 serviceAccountSecretRef:
                   key: secret
-                  name: "dns-secret"
+                  name: external-dns
+              {{- end }}
+              {{- with $p | get "other" nil }}
+              {{- toYaml . | get "cert-manager" nindent 14 }}
               {{- end }}
 {{- end }}
 # generate all da certs

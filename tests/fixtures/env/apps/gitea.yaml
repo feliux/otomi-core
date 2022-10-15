@@ -1,5 +1,0 @@
-apps:
-    gitea:
-        admin:
-            password: bladibla
-        enabled: true
