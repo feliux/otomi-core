@@ -5,6 +5,10 @@ k8s:
       app: argocd
     - name: cert-manager
       disableIstioInjection: true
+    - name: cnpg-system
+      app: cnpg
+      disableIstioInjection: true
+      disablePolicyChecks: true
     - name: default
       disableIstioInjection: true
       disablePolicyChecks: true
@@ -14,16 +18,26 @@ k8s:
       disablePolicyChecks: true
     - name: external-dns
       disableIstioInjection: true
+    - name: external-secrets
+      disableIstioInjection: true
+    - name: falco
+      disableIstioInjection: true
+      disablePolicyChecks: true
     - name: harbor
       app: harbor
     - name: gatekeeper-system
       app: gatekeeper
       disableIstioInjection: true
     - name: gitea
+    - name: gitea-operator
+      disableIstioInjection: true
     - name: grafana
       app: grafana
     - name: istio-system
       disableIstioInjection: true
+    - name: istio-operator
+      istio-operator-managed: Reconcile
+      istio-injection: disabled
     - name: httpbin
       app: httpbin
     - name: ingress
@@ -45,42 +59,68 @@ k8s:
       app: knative
       disablePolicyChecks: true
       disableIstioInjection: true
-    - name: kubeapps
-      app: kubeapps
+    - name: kured
+      app: kured
+      disableIstioInjection: true
+    - name: tekton-pipelines
+      app: tekton
       disableIstioInjection: true
       disablePolicyChecks: true
-    - name: kubeclarity
-      app: kubeclarity
+    - name: tekton-triggers
+      app: tekton
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: otel
+      app: otel
+      disableIstioInjection: true
+    - name: tempo
+      app: tempo
+      disableIstioInjection: true
     - name: maintenance
       disableIstioInjection: true
-    - name: monitoring
-      disableIstioInjection: true
-    - name: olm
+    - name: minio
+      app: minio
       disableIstioInjection: true
       disablePolicyChecks: true
-    - name: operators
+    - name: monitoring
+      disableIstioInjection: true
+    - name: opa-exporter
       disableIstioInjection: true
       disablePolicyChecks: true
     - name: otomi
+    - name: otomi-operator
+      disableIstioInjection: true
     - name: cluster-overprovisioner
       app: cluster-overprovisioner
+      disableIstioInjection: true
+    - name: rabbitmq
+      app: rabbitmq
       disableIstioInjection: true
     - name: redis
       app: prometheus
       disableIstioInjection: true
     - name: team-admin
-    - name: tigera-operator
+    - name: trivy-operator
+      app: trivy
       disableIstioInjection: true
       disablePolicyChecks: true
+    - name: sealed-secrets
+      app: sealed-secrets
     - name: vault
       app: vault
     - name: velero
       app: velero
+      disablePolicyChecks: true
+    - name: otomi-pipelines
+      app: tekton
+      disableIstioInjection: true
+      disablePolicyChecks: true
 
 adminApps:
   - name: alertmanager
     tags: [alerting, observability]
     deps: [prometheus]
+    ownHost: true
     ingress:
       - svc: po-alertmanager
         namespace: monitoring
@@ -97,10 +137,10 @@ adminApps:
         namespace: argocd
         type: public
         auth: true
-        # removeRequestHeaders:
-        #   - authorization
   - name: cert-manager
     tags: [ingress, security, tls]
+  - name: cnpg
+    tags: [database]
   - name: drone
     tags: [cicd, deployment, pipeline]
     isShared: true
@@ -119,8 +159,23 @@ adminApps:
         forwardPath: true
         removeRequestHeaders:
           - authorization
+  - name: tty
+    tags: [tty]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: tty
+        # virtual service is not going to be used.
+        namespace: ingress
+        type: public
+        auth: true
   - name: external-dns
     tags: [ingress, security, tls]
+  - name: external-secrets
+    tags: [secrets, security, tls]
+  - name: falco
+    tags: [security]
+    deps: [prometheus, grafana]
   - name: gatekeeper
     tags: [security, policies, observability]
   - name: gitea
@@ -135,6 +190,7 @@ adminApps:
   - name: grafana
     tags: [tracing, telemetry, observability]
     deps: [prometheus]
+    path: /dashboards
     ownHost: true
     ingress:
       - svc: po-grafana
@@ -167,6 +223,7 @@ adminApps:
         paths: [/chartrepo/, /service/, /v1/, /v2/]
         forwardPath: true
         type: public
+        hasOwnIngress: true
   - name: hello
     hide: true
     tags: [demo]
@@ -195,20 +252,20 @@ adminApps:
         auth: true
   - name: keycloak
     tags: [auth, sso]
-    isShared: true
+    # isShared: true
     ownHost: true
     ingress:
       - namespace: keycloak
-        svc: keycloak-http
+        svc: keycloak-service
         type: public
+        port: 8080
     shortcuts:
       - title: Account
         description: Edit your account settings.
         path: /realms/otomi/account/
   - name: kiali
     tags: [tracing, telemetry, observability]
-    deps: [istio]
-    path: /api/auth/openid_redirect
+    deps: [istio, prometheus]
     ingress:
       - svc: kiali
         forwardPath: true
@@ -221,31 +278,25 @@ adminApps:
   - name: knative
     tags: [serverless, functions]
     deps: [istio]
-  - name: kubeapps
-    tags: [dev, apps]
-    deps: [operator-lifecycle-manager]
-    isShared: true
-    ownHost: true
-    ingress:
-      - svc: kubeapps
-        namespace: kubeapps
-        type: public
-        # auth: true
-  - name: kubeclarity
+  - name: kured
     tags: [security]
+  - name: tekton
+    tags: [buildpacks, ci, pipelines]
     ownHost: true
-    isShared: true
+    path: /#/namespaces/otomi-pipelines/pipelineruns
     ingress:
-      - svc: kubeclarity
-        namespace: kubeclarity
-        port: 8080
+      - svc: tekton-dashboard
+        namespace: tekton-pipelines
+        port: 9097
         type: public
         auth: true
+        removeRequestHeaders:
+          - authorization
   - name: loki
     tags: [logging, telemetry, observability]
-    deps: [grafana, prometheus]
+    deps: [grafana, prometheus, minio]
     useHost: grafana
-    path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B%7D,%7B"mode":"Logs"%7D,%7B"ui":%5Btrue,true,true,"none"%5D%7D%5D
+    path: /explore?orgId=1&left=%7B"datasource":"loki","queries":%5B%7B"refId":"A"%7D%5D,"range":%7B"from":"now-1h","to":"now"%7D%7D
     shortcuts:
       - title: Ingress logs
         description: All logs generated in the "ingress" namespace
@@ -256,6 +307,17 @@ adminApps:
       - title: Gatekeeper violations
         description: Kube API violations logged by OPA gatekepeer
         path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B"expr":"%7Bnamespace%3D%5C"gatekeeper-system%5C"%7D%20%7C%3D%5C"Policy:%20%5C""%7D%5D
+  - name: minio
+    tags: [storage, backup]
+    ownHost: true
+    ingress:
+      - svc: minio
+        port: 9001
+        namespace: minio
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization
   - name: otomi
     hide: true
     isShared: true
@@ -272,6 +334,7 @@ adminApps:
         auth: true
   - name: prometheus
     tags: [metrics, observability]
+    ownHost: true
     ingress:
       - svc: po-prometheus
         port: 9090
@@ -279,6 +342,19 @@ adminApps:
         # namespace: prometheus
         type: public
         auth: true
+  - name: sealed-secrets
+    tags: [secrets, security, observability]
+    ownHost: true
+  - name: tempo
+    tags: [tracing]
+    deps: [prometheus, grafana, minio]
+    useHost: grafana
+    path: /explore?orgId=1&left=%7B"datasource":"tempo","queries":%5B%7B"refId":"A","datasource":%7B"type":"tempo","uid":"tempo"%7D,"queryType":"clear","limit":20%7D%5D,"range":%7B"from":"now-1h","to":"now"%7D%7D
+  - name: otel
+    tags: [tracing]
+  - name: trivy
+    tags: [security]
+    deps: [prometheus, grafana]
   - name: vault
     tags: [secrets, security, observability]
     deps: [external-secrets]
@@ -293,9 +369,12 @@ adminApps:
         auth: true
   - name: velero
     tags: [backup]
+  - name: rabbitmq
+    tags: [messaging]
 
 teamApps:
   - name: alertmanager
+    ownHost: true
     ingress:
       - svc: po-alertmanager
         hasPrefix: true
@@ -304,6 +383,7 @@ teamApps:
         auth: true
   - name: grafana
     ownHost: true
+    path: /dashboards
     ingress:
       - svc: po-grafana
         hasPrefix: true
@@ -314,11 +394,22 @@ teamApps:
         auth: true
   - name: loki
     useHost: grafana
-    path: /explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bnamespace%3D%5C%22#NS#%5C%22%7D%22%7D,%7B%22mode%22:%22Logs%22%7D,%7B%22ui%22:%5Btrue,true,true,%22none%22%5D%7D%5D
+    path: /explore?orgId=1&left=%7B"datasource":"loki","queries":%5B%7B"refId":"A","expr":"","queryType":"range","datasource":%7B"type":"loki","uid":"loki"%7D%7D%5D,"range":%7B"from":"now-1h","to":"now"%7D%7D
   - name: prometheus
+    ownHost: true
     ingress:
       - svc: po-prometheus
         hasPrefix: true
         port: 9090
         type: public
         auth: true
+  - name: tekton
+    ownHost: true
+    ingress:
+      - svc: tekton-dashboard
+        hasPrefix: true
+        port: 9097
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization

@@ -1,18 +1,20 @@
+import retry, { Options } from 'async-retry'
 import { mkdirSync, rmdirSync, writeFileSync } from 'fs'
-import { isEmpty } from 'lodash'
+import { cloneDeep, isEmpty } from 'lodash'
+import { prepareDomainSuffix } from 'src/common/bootstrap'
+import { cleanupHandler, prepareEnvironment } from 'src/common/cli'
+import { logLevelString, terminal } from 'src/common/debug'
+import { env } from 'src/common/envalid'
+import { hf } from 'src/common/hf'
+import { getDeploymentState, getHelmReleases, setDeploymentState } from 'src/common/k8s'
+import { getFilename, rootDir } from 'src/common/utils'
+import { getCurrentVersion, getImageTag, writeValuesToFile } from 'src/common/values'
+import { HelmArguments, getParsedArgs, helmOptions, setParsedArgs } from 'src/common/yargs'
+import { ProcessOutputTrimmed } from 'src/common/zx-enhance'
 import { Argv, CommandModule } from 'yargs'
 import { $, nothrow } from 'zx'
-import { prepareDomainSuffix } from '../common/bootstrap'
-import { cleanupHandler, prepareEnvironment } from '../common/cli'
-import { logLevelString, terminal } from '../common/debug'
-import { env, isCli } from '../common/envalid'
-import { hf } from '../common/hf'
-import { getDeploymentState, setDeploymentState } from '../common/k8s'
-import { getFilename } from '../common/utils'
-import { getCurrentVersion, getImageTag } from '../common/values'
-import { getParsedArgs, HelmArguments, helmOptions, setParsedArgs } from '../common/yargs'
-import { ProcessOutputTrimmed } from '../common/zx-enhance'
-import { commit } from './commit'
+import { applyAsApps } from './apply-as-apps'
+import { cloneOtomiChartsInGitea, commit, printWelcomeMessage } from './commit'
 import { upgrade } from './upgrade'
 
 const cmdName = getFilename(__filename)
@@ -32,18 +34,24 @@ const setup = (): void => {
 
 const applyAll = async () => {
   const d = terminal(`cmd:${cmdName}:applyAll`)
+  const prevState = await getDeploymentState()
+  const intitalInstall = isEmpty(prevState.version)
   const argv: HelmArguments = getParsedArgs()
+
   await upgrade({ when: 'pre' })
   d.info('Start apply all')
-  const prevState = await getDeploymentState()
-  d.debug(`Deployment state: ${JSON.stringify(prevState)}`)
+  d.info(`Deployment state: ${JSON.stringify(prevState)}`)
   const tag = await getImageTag()
   const version = await getCurrentVersion()
   await setDeploymentState({ status: 'deploying', deployingTag: tag, deployingVersion: version })
 
+  const state = await getDeploymentState()
+  const releases = await getHelmReleases()
+  await writeValuesToFile(`${env.ENV_DIR}/env/status.yaml`, { status: { otomi: state, helm: releases } }, true)
+
   const output: ProcessOutputTrimmed = await hf(
     { fileOpts: 'helmfile.tpl/helmfile-init.yaml', args: 'template' },
-    { streams: { stdout: d.stream.log, stderr: d.stream.error } },
+    { streams: { stderr: d.stream.error } },
   )
   if (output.exitCode > 0) {
     throw new Error(output.stderr)
@@ -52,44 +60,96 @@ const applyAll = async () => {
   }
   const templateOutput = output.stdout
   writeFileSync(templateFile, templateOutput)
+
+  d.info('Deploying CRDs')
+  await $`kubectl apply -f charts/kube-prometheus-stack/crds --server-side`
+  await $`kubectl apply -f charts/tekton-triggers/crds --server-side`
+  d.info('Deploying essential manifests')
   await $`kubectl apply -f ${templateFile}`
-  await nothrow(
-    $`if ! kubectl replace -f charts/kube-prometheus-stack/crds; then kubectl create -f charts/kube-prometheus-stack/crds; fi`,
-  )
   d.info('Deploying charts containing label stage=prep')
   await hf(
     {
       // 'fileOpts' limits the hf scope and avoids parse errors (we only have basic values in this statege):
       fileOpts: 'helmfile.d/helmfile-02.init.yaml',
-      labelOpts: [...(argv.label || []), 'stage=prep'],
+      labelOpts: ['stage=prep'],
       logLevel: logLevelString(),
       args: ['apply'],
     },
     { streams: { stdout: d.stream.log, stderr: d.stream.error } },
   )
   await prepareDomainSuffix()
-  d.info('Deploying charts containing label stage!=prep')
+  // const applyLabel: string = process.env.OTOMI_DEV_APPLY_LABEL || 'stage!=prep'
+  // d.info(`Deploying charts containing label ${applyLabel}`)
+
+  let labelOpts = ['']
+  if (intitalInstall) {
+    // When Otomi is installed for the very first time and ArgoCD is not yet there.
+    // The 'tag!=teams' does not include team-ns-admin release name.
+    labelOpts = ['tag!=teams']
+  } else {
+    // When Otomi is already installed and Tekton pipeline performs GitOps.
+    // We ensure that helmfile does not deploy any team related Helm release.
+    labelOpts = ['pipeline!=otomi-task-teams']
+
+    // We still need to deploy all teams because some settings depend on platform apps.
+    // Note that team-ns-admin contains ingress for platform apps.
+    const params = cloneDeep(argv)
+    params.label = ['pipeline=otomi-task-teams']
+    await applyAsApps(params)
+  }
+
   await hf(
     {
-      labelOpts: [...(argv.label || []), 'stage!=prep'],
+      labelOpts,
       logLevel: logLevelString(),
       args: ['apply'],
     },
     { streams: { stdout: d.stream.log, stderr: d.stream.error } },
   )
+
   await upgrade({ when: 'post' })
-  if (!env.DISABLE_SYNC)
-    if (!isCli || isEmpty(prevState.status))
-      // commit first time when not deployed only, always commit in chart (might have previous failure)
-      await commit(true) // will set deployment state after
-    else await setDeploymentState({ status: 'deployed' })
+  if (!(env.isDev && env.DISABLE_SYNC)) {
+    await commit()
+    if (intitalInstall) {
+      await hf(
+        {
+          // 'fileOpts' limits the hf scope and avoids parse errors (we only have basic values in this statege):
+          fileOpts: `${rootDir}/helmfile.tpl/helmfile-e2e.yaml`,
+          logLevel: logLevelString(),
+          args: ['apply'],
+        },
+        { streams: { stdout: d.stream.log, stderr: d.stream.error } },
+      )
+      await cloneOtomiChartsInGitea()
+      await printWelcomeMessage()
+    }
+  }
+  await setDeploymentState({ status: 'deployed', version })
+  d.info('Deployment completed')
 }
 
 const apply = async (): Promise<void> => {
   const d = terminal(`cmd:${cmdName}:apply`)
   const argv: HelmArguments = getParsedArgs()
+  const retryOptions: Options = {
+    factor: 1,
+    retries: 3,
+    maxTimeout: 30000,
+  }
   if (!argv.label && !argv.file) {
-    await applyAll()
+    await retry(async (bail) => {
+      try {
+        await applyAll()
+      } catch (e) {
+        d.error(e)
+        await nothrow($`helm uninstall job-keycloak -n maintenance`)
+        await nothrow($`helm uninstall wait-for-otomi-realm -n maintenance`)
+        await nothrow($`kubectl delete job wait-for-otomi-realm -n maintenance`)
+        d.info(`Retrying in ${retryOptions.maxRetryTime} ms`)
+        throw e
+      }
+    }, retryOptions)
+
     return
   }
   d.info('Start apply')

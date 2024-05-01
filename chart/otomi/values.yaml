@@ -8,17 +8,12 @@ cluster: {}
   ##
   # domainSuffix: ''
 
-  ## Set the Kubernetes version
-  ## Currently 1.19, 1.20, 1.21, 1.22 and 1.23 are supported
-  ##
-  # k8sVersion: '1.22'
-
   ## Set the name of your cluster
   ## 
   # name: 'dev'
 
   ## Set provider
-  ## Can be one of aws|azure|google|digitalocean|ovh|vultr|custom
+  ## Can be one of aws|azure|google|digitalocean|ovh|vultr|scaleway|civo|custom
   ## Choose 'custom' for Minikube and any other K8s cluster.
   ##
   # provider: 'custom'
@@ -67,15 +62,17 @@ otomi: {}
 #   domainFilters: []
 #   zoneIdFilters: []
 #   provider:
-#     # provide one of the following below: aws|azure|google
+#     # choose your DNS provider: aws|azure|google|digitalocean|civo|cloudflare|other
 #     aws:
-#       # next two keys are optional for explicit access with an iam role
+#       # credentials are optional for explicit access with an iam role
 #       # (if no metadata exists with implicit role access to manage dns)
-#       accessKeySecret: ''
-#       secretAccessKey: ''
+#       credentials:
+#         secretKey: '' 
+#         accessKey: ''
 #       # region is always needed
 #       region: eu-central-1
-#       role: '' # optional ARN, may be set explicitly if no metadata can be accessed
+#       # optional ARN, may be set explicitly if no metadata can be accessed
+#       role: '' 
 #     azure:
 #       aadClientId: ''
 #       aadClientSecret: ''
@@ -84,6 +81,11 @@ otomi: {}
 #     google:
 #       serviceAccountKey: ''
 #       project: ''
+#     digitalocean:
+#       apiToken: ''
+#       apiSecret: ''
+#       email: ''
+#       proxied: # true|false (default is true)
 # KMS for encrypting values
 # kms:
 #   sops:

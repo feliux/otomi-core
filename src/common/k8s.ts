@@ -5,11 +5,11 @@ import { AnyAaaaRecord, AnyARecord } from 'dns'
 import { resolveAny } from 'dns/promises'
 import { access, mkdir, writeFile } from 'fs/promises'
 import { Agent } from 'https'
-import { dump, load } from 'js-yaml'
 import { isEmpty, map } from 'lodash'
 import fetch, { RequestInit } from 'node-fetch'
 import { dirname, join } from 'path'
-import { $, nothrow, sleep } from 'zx'
+import { parse, stringify } from 'yaml'
+import { $, cd, nothrow, sleep } from 'zx'
 import { DEPLOYMENT_PASSWORDS_SECRET, DEPLOYMENT_STATUS_CONFIGMAP } from './constants'
 import { terminal } from './debug'
 import { env } from './envalid'
@@ -25,7 +25,7 @@ export const createK8sSecret = async (
   data: Record<string, any> | string,
 ): Promise<void> => {
   const d = terminal('common:k8s:createK8sSecret')
-  const rawString = dump(data)
+  const rawString = stringify(data)
   const filePath = join('/tmp', secretId)
   const dirPath = dirname(filePath)
   try {
@@ -42,11 +42,20 @@ export const createK8sSecret = async (
   d.debug(`kubectl create secret output: \n ${result.stdout}`)
 }
 
+export const isResourcePresent = async (type: string, name: string, namespace: string): Promise<boolean> => {
+  try {
+    await $`kubectl get -n ${namespace} ${type} ${name}`
+  } catch {
+    return false
+  }
+  return true
+}
+
 export const getK8sSecret = async (name: string, namespace: string): Promise<Record<string, any> | undefined> => {
   const result = await nothrow(
     $`kubectl get secret ${name} -n ${namespace} -ojsonpath='{.data.${name}}' | base64 --decode`,
   )
-  if (result.exitCode === 0) return load(result.stdout) as Record<string, any>
+  if (result.exitCode === 0) return parse(result.stdout) as Record<string, any>
   return undefined
 }
 
@@ -59,13 +68,24 @@ export interface DeploymentState {
 }
 
 export const getDeploymentState = async (): Promise<DeploymentState> => {
-  if (env.DISABLE_SYNC) return {}
+  if (env.isDev && env.DISABLE_SYNC) return {}
   const result = await nothrow($`kubectl get cm -n otomi ${DEPLOYMENT_STATUS_CONFIGMAP} -o jsonpath='{.data}'`)
   return JSON.parse(result.stdout || '{}')
 }
 
+export const getHelmReleases = async (): Promise<Record<string, any>> => {
+  const result = await nothrow($`helm list -A -a -o json`)
+  const data = JSON.parse(result.stdout || '[]') as []
+  const status = data.reduce((acc, item) => {
+    // eslint-disable-next-line no-param-reassign
+    acc[`${item['namespace']}/${item['name']}`] = item
+    return acc
+  }, {})
+  return status
+}
+
 export const setDeploymentState = async (state: Record<string, any>): Promise<void> => {
-  if (env.DISABLE_SYNC) return
+  if (env.isDev && env.DISABLE_SYNC) return
   const d = terminal('common:k8s:setDeploymentState')
   const currentState = await getDeploymentState()
   const newState = { ...currentState, ...state }
@@ -114,7 +134,7 @@ export const getOtomiLoadBalancerIP = async (): Promise<string> => {
   /* A load balancer can have a hostname, ip or any list of those items. We select the first item, as we only need one.
    * And we prefer IP over hostname, as it reduces the fact that we need to resolve & select an ip.
    */
-  const firstIngressData = ingressDataListSorted[0]
+  const [firstIngressData] = ingressDataListSorted
 
   if (firstIngressData.ip) return firstIngressData.ip
   if (firstIngressData.hostname) {
@@ -187,6 +207,24 @@ type WaitTillAvailableOptions = Options & {
   skipSsl?: boolean
   username?: string
   password?: string
+}
+
+export const waitTillGitRepoAvailable = async (repoUrl): Promise<void> => {
+  const retryOptions: Options = {
+    retries: 10,
+    maxTimeout: 30000,
+  }
+  const d = terminal('common:k8s:waitTillGitRepoAvailable')
+  await retry(async (bail) => {
+    try {
+      cd(env.ENV_DIR)
+      // the ls-remote exist with zero even if repo is empty
+      await $`git ls-remote ${repoUrl}`
+    } catch (e) {
+      d.warn(e.message)
+      throw e
+    }
+  }, retryOptions)
 }
 
 export const waitTillAvailable = async (url: string, opts?: WaitTillAvailableOptions): Promise<void> => {

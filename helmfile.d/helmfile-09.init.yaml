@@ -10,6 +10,8 @@ bases:
 {{ readFile "snippets/templates.gotmpl" }}
 {{- $v := .Values }}
 {{- $a := $v.apps }}
+{{- $h := $a.harbor }}
+{{- $k := $a.keycloak }}
 
 releases:
   - name: cluster-autoscaler
@@ -27,7 +29,7 @@ releases:
       - {{- $v.apps.knative | get "_rawValues" dict | toYaml | nindent 8 }}
     <<: *upgrade
   - name: oauth2-proxy-redis
-    installed: true
+    installed: false
     namespace: istio-system
     chart: ../charts/redis
     labels:
@@ -36,4 +38,25 @@ releases:
       - ../values/oauth2-proxy/oauth2-proxy-redis.gotmpl
       - snippets/common.gotmpl
     <<: *upgrade
-
+  - name: minio
+    installed: {{ $a.minio.enabled }}
+    namespace: minio
+    labels:
+      pkg: minio
+    <<: *default
+  - name: harbor-artifacts
+    installed: {{ $h | get "enabled" }}
+    namespace: harbor
+    labels:
+      pkg: harbor
+    <<: *raw
+  - name: tekton-triggers
+    installed: true
+    namespace: tekton-pipelines
+    labels:
+      pkg: tekton-triggers
+    <<: *default
+  - name: otomi-pipelines
+    installed: true
+    namespace: otomi-pipelines
+    <<: *default

@@ -1,54 +1,29 @@
 {{- $v := .Values }}
 {{- $h := $v.apps.harbor }}
+{{- $db := $v.databases.harbor }}
 {{- $hp := $h | get "persistence" dict }}
 {{- $harborDomain := printf "harbor.%s" $v.cluster.domainSuffix }}
 {{- $notaryDomain := printf "notary.%s" $v.cluster.domainSuffix }}
 {{- $harborSecretName := ($harborDomain | replace "." "-") }}
 {{- $notarySecretName := ($notaryDomain | replace "." "-") }}
 {{- $externalUrl := printf "https://%s" $harborDomain }}
-{{- $tag := $h | get "image.tag" "v2.4.0" }}
+{{- $tag := $h | get "image.tag" "v2.6.4" }}
+{{/*The cloudNativeDb operator is responsible for creating the secret*/}}
 
 externalURL: {{ $externalUrl }}
 fullnameOverride: harbor
 # logLevel - debug, info, warning, error or fatal
 logLevel: warning
-harborAdminPassword: {{ $h | get "adminPassword" $v.otomi.adminPassword }}
+
+harborAdminPassword: {{ $h.adminPassword }}
 nameOverride: harbor
 secretKey: {{ $h | get "secretKey" nil }}
 
-clair:
-  adapter:
-    image:
-      tag: {{ $tag }}
-    resources:
-      {{- with $h | get "resources.clair-adapter" nil }}
-      {{- toYaml . | nindent 6 }}
-      {{- else }}
-      limits:
-        cpu: 400m
-        memory: 256Mi
-      requests:
-        cpu: 100m 
-        memory: 256Mi
-      {{- end }}
-  clair:
-    image:
-      tag: {{ $tag }}
-    resources:
-      {{- with $h | get "resources.clair" nil }}
-      {{- toYaml . | nindent 6 }}
-      {{- else }}
-      requests:
-        cpu: 100m 
-        memory: 1Gi
-      limits:
-        cpu: 400m
-        memory: 2Gi
-      {{- end }}
-  podAnnotations:
-    policy.otomi.io/ignore: psp-allowed-users
+updateStrategy:
+    type: Recreate
 
 chartmuseum:
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
   podAnnotations:
@@ -66,6 +41,8 @@ chartmuseum:
     {{- end }}
 
 core:
+  secretName: harbor-token-service-ca
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
   podAnnotations:
@@ -86,44 +63,20 @@ core:
   xsrfKey: {{ $h | get "core.xsrfKey" nil }}
 
 database:
-  internal:
-    image:
-      tag: {{ $tag }}
-    initContainer:
-      migrator:
-        resources:
-          limits:
-            cpu: 100m
-            memory: 512Mi
-          requests:
-            cpu: 50m
-            memory: 256Mi
-      permissions:
-        resources:
-          limits:
-            cpu: 100m
-            memory: 512Mi
-          requests:
-            cpu: 50m
-            memory: 256Mi
-    resources:
-      {{- with $h | get "resources.database" nil }}
-      {{- toYaml . | nindent 6 }}
-      {{- else }}
-      limits:
-        cpu: 100m
-        memory: 512Mi
-      requests:
-        cpu: 50m
-        memory: 256Mi
-      {{- end }}
-  password: {{ $h | get "adminPassword" $v.otomi.adminPassword }}
+  type: external
+  external:
+    # erase default password value from the Harbor Helm chart
+    password: null
+    coreDatabase: {{ $db.coreDatabase }}
+    username: harbor
+    host: harbor-otomi-db-rw.harbor.svc.cluster.local
+    existingSecret: harbor-otomi-db-app
   podAnnotations:
     # this exception allows the chmod fix to pass, which needs root access:
     policy.otomi.io/ignore.data-migrator: psp-allowed-users
-  type: internal
 
 exporter:
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
 
@@ -137,6 +90,7 @@ internalTLS:
   enabled: false
 
 jobservice:
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
   jobLoggers:
@@ -164,14 +118,16 @@ metrics:
 
 notary:
   server:
+    priorityClassName: otomi-critical
     image:
       tag: {{ $tag }}
   signer:
+    priorityClassName: otomi-critical
     image:
       tag: {{ $tag }}
   enabled: false
   secretName: {{ $notarySecretName }}
-  
+
 persistence:
   enabled: true
   # resourcePolicy: 'keep'
@@ -257,6 +213,7 @@ postgresql:
     enabled: true
 
 portal:
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
   resources:
@@ -275,6 +232,7 @@ portal:
 
 redis:
   internal:
+    priorityClassName: otomi-critical
     image:
       tag: {{ $tag }}
   podAnnotations:
@@ -293,6 +251,7 @@ redis:
       {{- end }}
 
 registry:
+  priorityClassName: otomi-critical
   secret: {{ $h | get "registry.secret" nil }}
   podAnnotations:
     policy.otomi.io/ignore: psp-allowed-users
@@ -327,24 +286,16 @@ registry:
       {{- end }}
   relativeurls: false
   credentials:
-    username: {{ $h | get "registry.credentials.username" }}
-    password: {{ $h | get "registry.credentials.password" $v.otomi.adminPassword }}
-    htpasswd: {{ $h | get "registry.credentials.htpasswd" nil }}
+    username: {{ $h.registry.credentials.username }}
+    password: {{ $h.registry.credentials.password }}
+    htpasswdString: {{ $h.registry.credentials.htpasswd }}
 
 trivy:
+  priorityClassName: otomi-critical
   image:
     tag: {{ $tag }}
-  resources:
-    {{- with $h | get "resources.trivy" nil }}
-      {{- toYaml . | nindent 6 }}
-    {{- else }}
-      requests:
-        cpu: 100m 
-        memory: 1Gi
-      limits:
-        cpu: 400m
-        memory: 2Gi
-    {{- end }}
+  resources: 
+    {{- $h.resources.trivy | toYaml  | nindent 4 }}
   automountServiceAccountToken: true
 
 {{- with .Values.otomi | get "globalPullSecret" nil }}

@@ -1,22 +1,51 @@
 teamConfig:
     admin:
         id: admin
+        managedMonitoring:
+            alertmanager: true
+            grafana: true
+            prometheus: true
+        selfService:
+            access:
+                - shell
+                - downloadCertificateAuthority
     demo:
         alerts:
+            email: {}
             receivers:
-                - email
+                - slack
+            repeatInterval: 3h
+            slack:
+                channel: aaaaa
+                channelCrit: aaaaa
         id: demo
+        managedMonitoring:
+            alertmanager: true
+            grafana: true
+            prometheus: true
         networkPolicy:
             egressPublic: true
-            ingressPrivate: true
+            ingressPrivate: false
         oidc:
             groupMapping: somesecretvalue
         resourceQuota:
             services.loadbalancers: '1'
         selfService:
+            access:
+                - shell
+                - downloadCertificateAuthority
             apps: []
             service:
                 - ingress
-                - networkPolicy
             team:
                 - alerts
+    dev:
+        id: dev
+        managedMonitoring:
+            alertmanager: true
+            grafana: true
+            prometheus: true
+        selfService:
+            access:
+                - shell
+                - downloadCertificateAuthority

@@ -1,29 +1,31 @@
+# syntax=docker/dockerfile:1.6
+# The above is needed for the "--checksum" argument to work in the ADD instruction
 FROM ubuntu:20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 # https://github.com/kubernetes/kubernetes/releases
-ARG KUBECTL_VERSION=1.23.8
+ARG KUBECTL_VERSION=1.26.9
 # https://github.com/helm/helm/tags
-ARG HELM_VERSION=3.9.0
+ARG HELM_VERSION=3.12.3
 # https://github.com/databus23/helm-diff/releases
-ARG HELM_DIFF_VERSION=3.5.0
+ARG HELM_DIFF_VERSION=3.8.0
 # https://github.com/jkroepke/helm-secrets/releases
-ARG HELM_SECRETS_VERSION=3.14.0
+ARG HELM_SECRETS_VERSION=3.15.0
 # https://github.com/mozilla/sops/releases
 ARG SOPS_VERSION=3.7.3
 # https://github.com/noqcks/gucci/releases
-ARG GUCCI_VERSION=1.5.5
+ARG GUCCI_VERSION=1.6.6
 # https://github.com/helmfile/helmfile/releases
-ARG HELMFILE_VERSION=0.145.0
+ARG HELMFILE_VERSION=0.156.0
 # https://github.com/open-policy-agent/opa/releases
-ARG OPA_VERSION=0.42.0
+ARG OPA_VERSION=0.50.1
 # https://github.com/instrumenta/kubeval/releases
 ARG KUBEVAL_VERSION=0.16.1
 # https://github.com/open-policy-agent/conftest/releases
-ARG CONFTEST_VERSION=0.32.1
+ARG CONFTEST_VERSION=0.39.2
 # https://github.com/plexsystems/konstraint/releases
-ARG KONSTRAINT_VERSION=0.21.0
+ARG KONSTRAINT_VERSION=0.26.0
 # https://nodejs.org/en/download/
 ARG NODE_VERSION=16
 
@@ -34,12 +36,14 @@ WORKDIR /
 RUN apt-get update -qq \
   && apt install --reinstall coreutils \
   && apt install -qqy --no-install-recommends \
+  apache2-utils \
   apt-transport-https \
   awscli \
   ca-certificates \
   curl \
   gettext \
   git \
+  gnupg \
   gnupg2 \
   groff \
   locales \
@@ -53,7 +57,6 @@ RUN apt-get update -qq \
   vim \
   nano \
   groff \
-  awscli \
   rsync \
   && rm -rf /var/lib/apt/lists/*
 
@@ -78,7 +81,7 @@ WORKDIR $APP_HOME
 ENV PATH $PATH:$APP_HOME
 
 # kubectl
-ADD https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl kubectl
+ADD --checksum=sha256:98ea4a13895e54ba24f57e0d369ff6be0d3906895305d5390197069b1da12ae2 https://dl.k8s.io/release/v$KUBECTL_VERSION/bin/linux/amd64/kubectl .
 RUN chmod +x kubectl
 
 # sops
@@ -124,8 +127,14 @@ ADD https://github.com/plexsystems/konstraint/releases/download/v${KONSTRAINT_VE
 RUN mv /tmp/konstraint-linux-amd64 konstraint && chmod +x konstraint
 
 # node
-RUN curl -sL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
-RUN apt-get install -y nodejs && \
+# https://github.com/nodesource/distributions
+RUN set -uex && \
+  mkdir -p /etc/apt/keyrings && \
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+  NODE_MAJOR=${NODE_VERSION} && \
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+  apt-get update && \
+  apt-get install nodejs -y && \
   npm install -g ajv-cli@v3.3.0 json-dereference-cli@0.1.2 zx
 
 RUN chown -R app:app /home/app

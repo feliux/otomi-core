@@ -1,0 +1,10 @@
+# Minimal values file with defaults
+cluster:
+  name: 'dev'
+  provider: custom
+  k8sContext: CONTEXT_PLACEHOLDER
+otomi:
+  version: 'main'
+apps:
+  metrics-server:
+    enabled: false

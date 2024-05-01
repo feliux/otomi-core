@@ -12,11 +12,22 @@ bases:
 {{- $a := $v.apps }}
 
 releases:
-  - name: argocd-operator
+  - name: argocd
     installed: {{ $a | get "argocd.enabled" }}
     namespace: argocd
+    <<: *default 
+  - name: otomi-operator
+    installed: true
+    namespace: otomi-operator
     labels:
-      pkg: argocd
+      pkg: otomi-operator
+    <<: *default
+  - name: external-secrets
+    installed: {{ $a | get "external-secrets.enabled" }}
+    namespace: external-secrets
+    labels:
+      pkg: external-secrets
+      group: secrets
     <<: *default
   - name: gitea-artifacts
     installed: {{ $a | get "gitea.enabled" }}
@@ -24,6 +35,12 @@ releases:
     labels:
       pkg: gitea
     <<: *raw
+  - name: gitea-operator
+    installed: true
+    namespace: gitea-operator
+    labels:
+      pkg: gitea-operator
+    <<: *default
   - name: kiali-operator-artifacts
     installed: {{ $a | get "kiali.enabled" }}
     namespace: kiali
@@ -50,7 +67,7 @@ releases:
     labels:
       init: true
       pkg: knative
-    <<: *skeleton
+    <<: *default
   - name: loki-artifacts
     installed: {{ $a | get "loki.enabled" }}
     namespace: monitoring
@@ -63,7 +80,26 @@ releases:
     chart: ../charts/vault-operator
     labels:
       pkg: vault
+      group: secrets
     values:
       - ../values/vault-operator/vault-operator.gotmpl
       - {{- $v.apps.vault | get "_rawValues" dict | toYaml | nindent 8 }}
     <<: *upgrade
+  - name: rabbitmq
+    installed: {{ $a | get "rabbitmq.enabled" }}
+    namespace: rabbitmq
+    <<: *default
+  - name: tekton-pipelines
+    installed: true
+    namespace: tekton-pipelines
+    labels:
+      pkg: tekton-pipelines
+    <<: *default
+  - name: tekton-dashboard
+    installed: true
+    namespace: tekton-pipelines
+    labels:
+      pkg: tekton-pipelines
+    chart: ../charts/tekton-dashboard
+    values:
+      - ../values/tekton-dashboard/tekton-dashboard.gotmpl

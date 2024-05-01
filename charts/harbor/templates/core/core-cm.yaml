@@ -63,3 +63,19 @@ data:
   #make the GC time window configurable for testing
   GC_TIME_WINDOW_HOURS: "{{ .Values.core.gcTimeWindowHours }}"
   {{- end }}
+  {{- template "harbor.traceEnvsForCore" . }}
+
+  {{- if .Values.core.artifactPullAsyncFlushDuration | quote }}
+  ARTIFACT_PULL_ASYNC_FLUSH_DURATION: {{ .Values.core.artifactPullAsyncFlushDuration }}
+  {{- end }}
+
+  {{- if .Values.core.gdpr}}
+  {{- if .Values.core.gdpr.deleteUser}}
+  GDPR_DELETE_USER: "true"
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.cache.enabled }}
+  CACHE_ENABLED: "true"
+  CACHE_EXPIRE_HOURS: "{{ .Values.cache.expireHours }}"
+  {{- end }}

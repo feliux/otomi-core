@@ -4,10 +4,20 @@
 {{- $k := $v.apps.keycloak }}
 {{- $giteaDomain := printf "gitea.%s" $v.cluster.domainSuffix }}
 {{- $cm := $v.apps | get "cert-manager" }}
+{{- $gdb := $v.databases.gitea }}
 
 nameOverride: gitea
 fullnameOverride: gitea
 
+podDns:
+  # dnsPolicy: "None"
+  dnsConfig:
+    options:
+      - name: ndots
+        value: "1"
+    nameservers:
+      - "8.8.4.4"
+      - "8.8.8.8"
 resources:
   {{ with $g | get "resources.gitea" nil }}
     {{- toYaml . | nindent 2 }}
@@ -36,8 +46,7 @@ image:
   imagePullSecrets:
     - name: otomi-pullsecret-global
   {{- end }}
-  # tag: {{ $g | get "image.gitea.tag" "1.15.8" }}
-  tag: {{ $g | get "image.gitea.tag" "1.16.6" }}
+  tag: {{ $g | get "image.gitea.tag" "1.19.1" }}
   pullPolicy: {{ $g | get "image.gitea.pullPolicy" "IfNotPresent" }}
   rootless: true
 
@@ -49,6 +58,15 @@ gitea:
     username: {{ $g.adminUsername }}
     password: {{ $g.adminPassword }}
   config:
+    {{- if $gdb.useOtomiDB }}
+    database:
+      DB_TYPE: postgres
+      HOST: gitea-db-rw.gitea.svc.cluster.local:5432
+      NAME: gitea
+      USER: gitea
+      PASSWD: {{ $v.apps.gitea.postgresqlPassword }}
+      SCHEMA: public
+    {{- end }}
     admin:
       DISABLE_REGULAR_ORG_CREATION: false
     log:
@@ -163,6 +181,11 @@ persistence:
   {{- end }}
 
 postgresql:
+  {{- if $gdb.useOtomiDB }}
+  enabled: false
+  {{- else }}
+  enabled: true
+  {{- end }} 
   # @TODO:
   image:
     tag: {{ $g | get "image.postgresql.tag" "13.5.0" }}

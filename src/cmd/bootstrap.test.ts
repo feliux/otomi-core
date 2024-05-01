@@ -1,13 +1,16 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { cloneDeep, merge } from 'lodash'
 import { pki } from 'node-forge'
+import { env } from 'process'
+import stubs from 'src/test-stubs'
 import { createMock } from 'ts-auto-mock'
-import stubs from '../test-stubs'
 import {
   bootstrap,
   bootstrapSops,
   copyBasicFiles,
   createCustomCA,
   getStoredClusterSecrets,
+  handleFileEntry,
   processValues,
 } from './bootstrap'
 
@@ -22,24 +25,28 @@ describe('Bootstrapping values', () => {
   let deps
   beforeEach(() => {
     deps = {
+      $: jest.fn(),
+      bootstrapSops: jest.fn(),
+      copyBasicFiles: jest.fn(),
+      copyFile: jest.fn(),
+      createCustomCA: jest.fn(),
+      handleFileEntry: jest.fn(),
+      decrypt: jest.fn(),
+      encrypt: jest.fn(),
       existsSync: jest.fn(),
+      genSops: jest.fn(),
+      getCurrentVersion: jest.fn(),
       getDeploymentState: jest.fn().mockReturnValue({}),
       getImageTag: jest.fn(),
-      getCurrentVersion: jest.fn(),
-      bootstrapSops: jest.fn(),
-      terminal,
-      copyBasicFiles: jest.fn(),
-      processValues: jest.fn(),
-      hfValues: jest.fn(),
-      createCustomCA: jest.fn(),
-      isCli: true,
-      writeValues: jest.fn(),
-      genSops: jest.fn(),
-      copyFile: jest.fn(),
-      migrate: jest.fn(),
       getK8sSecret: jest.fn(),
-      encrypt: jest.fn(),
-      decrypt: jest.fn(),
+      hfValues: jest.fn(),
+      isCli: true,
+      migrate: jest.fn(),
+      nothrow: jest.fn(),
+      pathExists: jest.fn(),
+      processValues: jest.fn(),
+      terminal,
+      writeValues: jest.fn(),
     }
   })
   it('should call relevant sub routines', async () => {
@@ -81,19 +88,46 @@ describe('Bootstrapping values', () => {
   })
   describe('Copying basic files', () => {
     const deps = {
-      env: () => ({
-        ENV_DIR: '/bla/env',
-      }),
-      mkdirSync: jest.fn(),
-      copyFile: jest.fn(),
-      terminal,
       copy: jest.fn(),
+      copyFile: jest.fn(),
       copySchema: jest.fn(),
-      existsSync: jest.fn(),
+      mkdir: jest.fn(),
+      pathExists: jest.fn(),
+      terminal,
     }
     it('should not throw any exception', async () => {
       const res = await copyBasicFiles(deps)
       expect(res).toBe(undefined)
+    })
+  })
+  describe('Creating folders and files for workload', () => {
+    const values = {
+      values: {
+        image: {
+          repository: 'otomi/nodejs-helloworld',
+          tag: 'v1.2.13',
+        },
+      },
+    }
+    const workload = {
+      files: {
+        'env/teams/workloads/demo/values.yaml': JSON.stringify(values),
+      },
+    }
+    const deps = {
+      isChart: true,
+      loadYaml: jest.fn().mockReturnValue(workload),
+      mkdir: jest.fn(),
+      terminal,
+      writeFile: jest.fn(),
+    }
+    it('should create folders and files based on file entry in yaml', async () => {
+      await handleFileEntry(deps)
+      expect(deps.mkdir).toBeCalledWith(`${env.ENV_DIR}/env/teams/workloads/demo`, { recursive: true })
+      expect(deps.writeFile).toBeCalledWith(
+        `${env.ENV_DIR}/env/teams/workloads/demo/values.yaml`,
+        JSON.stringify(values),
+      )
     })
   })
   describe('Generating sops related files', () => {
@@ -108,30 +142,30 @@ describe('Bootstrapping values', () => {
       },
     }
     const deps = {
-      terminal,
-      loadYaml: jest.fn().mockReturnValue(settings),
       copyFile: jest.fn(),
       decrypt: jest.fn(),
       encrypt: jest.fn(),
       gucci: jest.fn().mockReturnValue('ok'),
       hfValues: jest.fn(),
-      existsSync: jest.fn(),
-      readFileSync: jest.fn(),
-      writeFileSync: jest.fn(),
+      loadYaml: jest.fn().mockReturnValue(settings),
+      pathExists: jest.fn(),
+      readFile: jest.fn(),
+      terminal,
+      writeFile: jest.fn(),
     }
     it('should create files on first run and en/de-crypt', async () => {
-      deps.existsSync.mockReturnValue(false)
+      deps.pathExists.mockReturnValue(false)
       deps.hfValues.mockReturnValue(settings)
-      await bootstrapSops(deps)
+      await bootstrapSops(undefined, deps)
       expect(deps.encrypt).toHaveBeenCalled()
       expect(deps.decrypt).toHaveBeenCalled()
     })
     it('should just create files on next runs', async () => {
-      deps.existsSync.mockReturnValue(true)
+      deps.pathExists.mockReturnValue(true)
       deps.hfValues.mockReturnValue(settings)
       deps.decrypt = jest.fn()
       deps.encrypt = jest.fn()
-      const res = await bootstrapSops(deps)
+      const res = await bootstrapSops(undefined, deps)
       expect(res).toBe(undefined)
       expect(deps.encrypt).not.toHaveBeenCalled()
       expect(deps.decrypt).not.toHaveBeenCalled()
@@ -167,21 +201,18 @@ describe('Bootstrapping values', () => {
     let deps
     beforeEach(() => {
       deps = {
-        terminal,
+        createCustomCA: jest.fn().mockReturnValue(ca),
+        createK8sSecret: jest.fn(),
+        decrypt: jest.fn(),
+        existsSync: jest.fn(),
+        generateSecrets: jest.fn().mockReturnValue(generatedSecrets),
+        getStoredClusterSecrets: jest.fn().mockReturnValue(secrets),
+        hfValues: jest.fn().mockReturnValue(values),
         isChart: true,
         loadYaml: jest.fn(),
-        decrypt: jest.fn(),
-        getStoredClusterSecrets: jest.fn().mockReturnValue(secrets),
-        writeValues: jest.fn(),
-        env: () => ({
-          ENV_DIR: '/tmp/otomi-test/env',
-        }),
-        createK8sSecret: jest.fn(),
-        createCustomCA: jest.fn().mockReturnValue(ca),
-        hfValues: jest.fn().mockReturnValue(values),
-        existsSync: jest.fn(),
+        terminal,
         validateValues: jest.fn().mockReturnValue(true),
-        generateSecrets: jest.fn().mockReturnValue(generatedSecrets),
+        writeValues: jest.fn(),
       }
     })
     describe('Creating CA', () => {

@@ -168,16 +168,16 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
   {{- end }}
 {{- end -}}
 
-/*scheme://[redis:password@]host:port[/master_set]*/
+/*scheme://[:password@]host:port[/master_set]*/
 {{- define "harbor.redis.url" -}}
   {{- with .Values.redis }}
     {{- $path := ternary "" (printf "/%s" (include "harbor.redis.masterSet" $)) (not (include "harbor.redis.masterSet" $)) }}
-    {{- $cred := ternary (printf "redis:%s@" (.external.password | urlquery)) "" (and (eq .type "external" ) (not (not .external.password))) }}
+    {{- $cred := ternary (printf ":%s@" (.external.password | urlquery)) "" (and (eq .type "external" ) (not (not .external.password))) }}
     {{- printf "%s://%s%s%s" (include "harbor.redis.scheme" $) $cred (include "harbor.redis.addr" $) $path -}}
   {{- end }}
 {{- end -}}
 
-/*scheme://[redis:password@]addr/db_index?idle_timeout_seconds=30*/
+/*scheme://[:password@]addr/db_index?idle_timeout_seconds=30*/
 {{- define "harbor.redis.urlForCore" -}}
   {{- with .Values.redis }}
     {{- $index := ternary "0" .external.coreDatabaseIndex (eq .type "internal") }}
@@ -185,7 +185,7 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
   {{- end }}
 {{- end -}}
 
-/*scheme://[redis:password@]addr/db_index*/
+/*scheme://[:password@]addr/db_index*/
 {{- define "harbor.redis.urlForJobservice" -}}
   {{- with .Values.redis }}
     {{- $index := ternary "1" .external.jobserviceDatabaseIndex (eq .type "internal") }}
@@ -193,7 +193,7 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
   {{- end }}
 {{- end -}}
 
-/*scheme://[redis:password@]addr/db_index?idle_timeout_seconds=30*/
+/*scheme://[:password@]addr/db_index?idle_timeout_seconds=30*/
 {{- define "harbor.redis.urlForRegistry" -}}
   {{- with .Values.redis }}
     {{- $index := ternary "2" .external.registryDatabaseIndex (eq .type "internal") }}
@@ -201,7 +201,7 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
   {{- end }}
 {{- end -}}
 
-/*scheme://[redis:password@]addr/db_index?idle_timeout_seconds=30*/
+/*scheme://[:password@]addr/db_index?idle_timeout_seconds=30*/
 {{- define "harbor.redis.urlForTrivy" -}}
   {{- with .Values.redis }}
     {{- $index := ternary "5" .external.trivyAdapterIndex (eq .type "internal") }}
@@ -239,6 +239,10 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
 
 {{- define "harbor.registry" -}}
   {{- printf "%s-registry" (include "harbor.fullname" .) -}}
+{{- end -}}
+
+{{- define "harbor.registryCtl" -}}
+  {{- printf "%s-registryctl" (include "harbor.fullname" .) -}}
 {{- end -}}
 
 {{- define "harbor.chartmuseum" -}}
@@ -546,4 +550,57 @@ postgres://{{ template "harbor.database.username" . }}:{{ template "harbor.datab
   {{- else -}}
     {{- printf "http-metrics" -}}
   {{- end -}}
+{{- end -}}
+
+{{- define "harbor.traceEnvs" -}}
+  TRACE_ENABLED: "{{ .Values.trace.enabled }}"
+  TRACE_SAMPLE_RATE: "{{ .Values.trace.sample_rate }}"
+  TRACE_NAMESPACE: "{{ .Values.trace.namespace }}"
+  {{- if .Values.trace.attributes }}
+  TRACE_ATTRIBUTES: "{{ .Values.trace.attributes | toJson }}"
+  {{- end }}
+  {{- if eq .Values.trace.provider "jaeger" }}
+  TRACE_JAEGER_ENDPOINT: "{{ .Values.trace.jaeger.endpoint }}"
+  TRACE_JAEGER_USERNAME: "{{ .Values.trace.jaeger.username }}"
+  TRACE_JAEGER_AGENT_HOSTNAME: "{{ .Values.trace.jaeger.agent_host }}"
+  TRACE_JAEGER_AGENT_PORT: "{{ .Values.trace.jaeger.agent_port }}"
+  {{- else }}
+  TRACE_OTEL_ENDPOINT: "{{ .Values.trace.otel.endpoint }}"
+  TRACE_OTEL_URL_PATH: "{{ .Values.trace.otel.url_path }}"
+  TRACE_OTEL_COMPRESSION: "{{ .Values.trace.otel.compression }}"
+  TRACE_OTEL_INSECURE: "{{ .Values.trace.otel.insecure }}"
+  TRACE_OTEL_TIMEOUT: "{{ .Values.trace.otel.timeout }}"
+  {{- end }}
+{{- end -}}
+
+{{- define "harbor.traceEnvsForCore" -}}
+  {{- if .Values.trace.enabled }}
+  TRACE_SERVICE_NAME: "harbor-core"
+  {{ include "harbor.traceEnvs" . }}
+  {{- end }}
+{{- end -}}
+
+{{- define "harbor.traceEnvsForJobservice" -}}
+  {{- if .Values.trace.enabled }}
+  TRACE_SERVICE_NAME: "harbor-jobservice"
+  {{ include "harbor.traceEnvs" . }}
+  {{- end }}
+{{- end -}}
+
+{{- define "harbor.traceEnvsForRegistryCtl" -}}
+  {{- if .Values.trace.enabled }}
+  TRACE_SERVICE_NAME: "harbor-registryctl"
+  {{ include "harbor.traceEnvs" . }}
+  {{- end }}
+{{- end -}}
+
+{{- define "harbor.traceJaegerPassword" -}}
+  {{- if and .Values.trace.enabled (eq .Values.trace.provider "jaeger") }}
+  TRACE_JAEGER_PASSWORD: "{{ .Values.trace.jaeger.password | default "" | b64enc }}"
+  {{- end }}
+{{- end -}}
+
+{{/* Allow KubeVersion to be overridden. */}}
+{{- define "harbor.ingress.kubeVersion" -}}
+  {{- default .Capabilities.KubeVersion.Version .Values.expose.ingress.kubeVersionOverride -}}
 {{- end -}}

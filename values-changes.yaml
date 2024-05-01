@@ -55,3 +55,104 @@ changes:
       - dns.provider.aws.secretAccessKey: dns.provider.aws.credentials.secretKey
       - dns.provider.google.projectId: dns.provider.google.project
       - kms.sops.google.projectId: kms.sops.google.project
+  - version: 6
+    relocations:
+      - apps.ingress-nginx: 'apps.ingress-nginx-platform'
+  - version: 7
+    relocations:
+      - apps.harbor.persistence.aws: 'apps.harbor.persistence.s3'
+  - version: 8
+    deletions:
+      - 'apps.harbor.resources.clair'
+      - 'apps.harbor.resources.clair-adapter'
+  - version: 9
+    relocations:
+      - cluster.entrypoint: ingress.platformClass.entrypoint
+  - version: 10
+    additions:
+      - apps.harbor.database.type: internal
+    relocations:
+      - apps.velero.platformBackups: apps.velero.platformBackups.persistentVolumes
+  - version: 11
+    deleteions:
+      - 'apps.harbor.backup'
+      - 'apps.loki.resources.limits'
+      - 'apps.loki.resources.requests'
+  - version: 12
+    additions:
+      - databases.keycloak.useOtomiDB: false
+      - databases.keycloak.imported: false
+  - version: 13
+    deletions:
+      - 'cluster.k8sVersion'
+  - version: 14
+    deletions:
+      - 'apps.istio.meshConfig'
+  - version: 15
+    relocations:
+      - apps.keycloak.resources.postgresql: databases.keycloak.resources
+    deletions:
+      - apps.keycloak.postgresqlPassword
+      - apps.keycloak.postgresql
+  - version: 16
+    deletions:
+      - apps.tekton.enabled
+      - apps.demo-tlspass
+      - apps.hello
+      - apps.host-mods
+      - apps.kubeclarity
+      - apps.tigera-operator
+      - apps.kubeapps
+      - platformBackups.persistentVolumes.kubeapps
+    additions:
+      - apps.drone.enabled: true
+  - version: 17
+    deletions:
+      - 'teamConfig.{team}.monitoringStack'
+    additions:
+      - 'teamConfig.{team}.managedMonitoring.alertmanager': true
+      - 'teamConfig.{team}.managedMonitoring.grafana': true
+      - 'teamConfig.{team}.managedMonitoring.prometheus': true
+  - version: 18
+    additions:
+      - 'teamConfig.{team}.selfService.access': ['shell', 'downloadCertificateAuthority']
+    relocations:
+      - 'teamConfig.{team}.selfService.team.downloadKubeConfig': 'teamConfig.{team}.selfService.access'
+      - 'teamConfig.{team}.selfService.team.downloadDockerConfig': 'teamConfig.{team}.selfService.access'
+  - version: 19
+    deletions:
+      - 'apps.argocd.enabled'
+  - version: 20
+    networkPoliciesMigration: true
+    additions:
+      - 'teamConfig.{team}.managedMonitoring.private': true
+    deletions:
+      - 'apps.loki.storage.gcs.project'
+      - 'apps.loki.storage.gcs.instance'
+  - version: 21
+    deletions:
+      - 'apps.harbor.databasePassword'
+      - 'apps.harbor.database.type'
+      - 'apps.harbor.database.importHarborDb'
+      - 'apps.harbor.database.name'
+      - 'apps.harbor.database.user'
+      - 'apps.harbor.database'
+      - 'databases.keycloak.useOtomiDB'
+    additions:
+      - databases.harbor.replicas: 2
+    relocations:
+      - 'apps.harbor.database.size': 'databases.harbor.size'
+      - 'apps.harbor.resources.database': 'databases.harbor.resources'
+  - version: 22
+    additions:
+      - databases.gitea.useOtomiDB: false
+      - databases.gitea.imported: false
+    deletions:
+      - 'apps.thanos'
+      - 'apps.prometheus.remoteWrite.otomiThanos'
+      - 'apps.ingress-azure'
+      - 'otomi.hasCloudLB'
+      - 'monitor'
+      - 'azureMonitor'
+      - 'apps.opencost'
+      - 'teams.{team}.billingAlertQuotas'

@@ -1,13 +1,11 @@
 {{- $v := .Values }}
-{{- $k8sToKnativeMap := dict "1.19" "1.1" "1.20" "1.2" "1.21" "1.3" "1.22" "1.4" "1.23" "1.4" "1.24" "1.4" }}
-{{- $version := index $k8sToKnativeMap (printf "%s" $v.cluster.k8sVersion) }}
-apiVersion: operator.knative.dev/v1alpha1
+apiVersion: operator.knative.dev/v1beta1
 kind: KnativeServing
 metadata:
   name: knative-serving
   namespace: knative-serving
 spec:
-  version: {{ $version | quote }}
+  version: "1.9"
   {{- if $v._derived.untrustedCA }}
   controller-custom-certs:
     name: certs
@@ -19,6 +17,7 @@ spec:
     defaults:
       revision-timeout-seconds: "300"  # 5 minutes
       enable-service-links: "false"
+      domain-template: "{{`{{.Name}}`}}-{{`{{.Namespace}}`}}.{{`{{.Domain}}`}}"
     autoscaler:
       stable-window: 600s
       scale-to-zero-grace-period: 60s
@@ -38,6 +37,3 @@ spec:
       knative-ingress-gateway:
         selector:
           istio: ingressgateway-public
-  knative-ingress-gateway:
-    selector:
-      istio: ingressgateway-public

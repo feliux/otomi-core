@@ -1,15 +1,15 @@
 import { readFileSync, rmSync } from 'fs'
 import { mkdir, writeFile } from 'fs/promises'
 import { loadAll } from 'js-yaml'
+import { cleanupHandler, prepareEnvironment } from 'src/common/cli'
+import { terminal } from 'src/common/debug'
+import { hfTemplate } from 'src/common/hf'
+import { getFilename, readdirRecurse, rootDir } from 'src/common/utils'
+import { getK8sVersion } from 'src/common/values'
+import { BasicArguments, HelmArguments, getParsedArgs, helmOptions, setParsedArgs } from 'src/common/yargs'
 import tar from 'tar'
 import { Argv } from 'yargs'
 import { $, cd, chalk, nothrow } from 'zx'
-import { cleanupHandler, prepareEnvironment } from '../common/cli'
-import { terminal } from '../common/debug'
-import { hfTemplate } from '../common/hf'
-import { getFilename, readdirRecurse, rootDir } from '../common/utils'
-import { getK8sVersion } from '../common/values'
-import { BasicArguments, getParsedArgs, HelmArguments, helmOptions, setParsedArgs } from '../common/yargs'
 
 const cmdName = getFilename(__filename)
 
@@ -75,7 +75,7 @@ type crdSchema = {
 
 const processCrd = (path: string): crdSchema[] => {
   const d = terminal(`cmd:${cmdName}:processCrd`)
-  d.info('Processing CRD file: ', path)
+  d.debug('Processing CRD file: ', path)
 
   const documents: any[] = loadAll(readFileSync(path, 'utf-8')).filter(
     (singleDoc: any) => singleDoc?.kind === 'CustomResourceDefinition',
@@ -116,7 +116,7 @@ const processCrdWrapper = async (argv: BasicArguments) => {
   d.log('Processing CRD files...')
   cd(rootDir)
   const chartsFiles = await readdirRecurse('charts')
-  const crdFiles = chartsFiles.filter((val: string) => val.match(/\/crds\/.*\.yaml/g))
+  const crdFiles = chartsFiles.filter((val: string) => val.match(/(?<!\/templates)\/crds\/.*\.yaml/g))
   const results = await Promise.all(crdFiles.flatMap((crdFile: string): crdSchema[] => processCrd(crdFile)))
 
   const prep: Promise<any>[] = []
@@ -153,7 +153,7 @@ export const validateTemplates = async (): Promise<void> => {
   ]
   // TODO: revisit these excluded resources and see it they exist now (from original sh script)
   const skipKinds = ['CustomResourceDefinition', ...constraintKinds]
-  const skipFilenames = ['crd', 'constraint']
+  const skipFilenames = ['crd', 'constraint', 'knative-operator', 'buildpack', 'docker', 'git-clone', 'kaniko']
 
   d.log('Validating resources')
   const quiet = !argv.verbose ? [] : ['--quiet']
@@ -167,6 +167,11 @@ export const validateTemplates = async (): Promise<void> => {
       ',',
     )} -d ${k8sResourcesPath} --schema-location file://${schemaOutputPath} --kubernetes-version ${k8sVersion}`,
   )
+
+  let passCount = 0
+  let warnCount = 0
+  let errCount = 0
+  let prev = ''
   ;`${kubevalOutput.stdout}\n${kubevalOutput.stderr}`.split('\n').forEach((x) => {
     if (x === '') return
     const [left, right] = x.split(' - ')
@@ -174,18 +179,26 @@ export const validateTemplates = async (): Promise<void> => {
     const v = right ? right.trim() : ''
     switch (k) {
       case 'PASS':
-        d.info(`${chalk.greenBright('PASS')}: ${chalk.italic('%s')}`, v)
+        passCount += 1
         break
       case 'WARN':
+        warnCount += 1
         d.warn(`${chalk.yellowBright('WARN')}: %s`, v)
         break
       case 'ERR':
+        errCount += 1
+        d.error(`${chalk.redBright('INFO')}: %s`, prev)
         d.error(`${chalk.redBright('ERR')}: %s`, v)
         break
       default:
         break
     }
+    prev = x
   })
+  d.info(`${chalk.greenBright('TOTAL PASS')}: %s`, `${passCount} files`)
+  d.info(`${chalk.yellowBright('TOTAL WARN')}: %s`, `${warnCount} files`)
+  d.info(`${chalk.redBright('TOTAL ERR')}: %s`, `${errCount} files`)
+
   if (kubevalOutput.exitCode !== 0) {
     throw new Error(`Template validation FAILED: ${kubevalOutput.exitCode}`)
   } else d.log('Template validation SUCCESS')

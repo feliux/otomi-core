@@ -1,12 +1,12 @@
 import { existsSync, unlinkSync, writeFileSync } from 'fs'
+import { cleanupHandler, prepareEnvironment } from 'src/common/cli'
+import { logLevelString, terminal } from 'src/common/debug'
+import { hf } from 'src/common/hf'
+import { getFilename } from 'src/common/utils'
+import { BasicArguments, HelmArguments, getParsedArgs, helmOptions, setParsedArgs } from 'src/common/yargs'
+import { ProcessOutputTrimmed, stream } from 'src/common/zx-enhance'
 import { Argv } from 'yargs'
 import { $, nothrow } from 'zx'
-import { cleanupHandler, prepareEnvironment } from '../common/cli'
-import { logLevelString, terminal } from '../common/debug'
-import { hf } from '../common/hf'
-import { getFilename } from '../common/utils'
-import { BasicArguments, getParsedArgs, HelmArguments, helmOptions, setParsedArgs } from '../common/yargs'
-import { ProcessOutputTrimmed, stream } from '../common/zx-enhance'
 
 const cmdName = getFilename(__filename)
 const templateFile = '/tmp/otomi/destroy-template.yaml'
@@ -29,8 +29,6 @@ const destroyAll = async () => {
   const d = terminal(`cmd:${cmdName}:destroyAll`)
   d.log('Uninstalling otomi...')
   const debugStream = { stdout: d.stream.debug, stderr: d.stream.error }
-  d.info('Removing problematic part: olm deployments...')
-  await stream(nothrow($`kubectl -n olm delete deploy --all`), debugStream)
   d.info('Removing problematic part: kiali finalizer...')
   await stream(
     nothrow($`kubectl -n kiali patch kiali kiali -p '{"metadata":{"finalizers": []}}' --type=merge`),
@@ -47,6 +45,50 @@ const destroyAll = async () => {
   if (output.exitCode > 0 || output.stderr.length > 0) {
     d.error(output.stderr)
   }
+
+  d.info('Uninstalling webhook mutatingwebhookconfiguration ...')
+  await stream(nothrow($`kubectl delete mutatingwebhookconfiguration istio-sidecar-injector`), debugStream)
+
+  d.info('Uninstalling webhook validatingwebhookconfiguration ...')
+
+  const validationAdmissionControllers = [
+    'cert-manager-webhook',
+    'cnpg-validating-webhook-configuration',
+    'config.webhook.istio.networking.internal.knative.dev',
+    'config.webhook.pipeline.tekton.dev',
+    'config.webhook.serving.knative.dev',
+    'istio-validator-istio-system',
+    'validation-webhook.snapshot.storage.k8s.io',
+    'validation.webhook.domainmapping.serving.knative.dev',
+    'validation.webhook.pipeline.tekton.dev',
+    'validation.webhook.serving.knative.dev',
+  ]
+
+  await Promise.allSettled(
+    validationAdmissionControllers.map(async (val) =>
+      stream(
+        nothrow($`kubectl delete validatingwebhookconfiguration.admissionregistration.k8s.io ${val}`),
+        debugStream,
+      ),
+    ),
+  )
+
+  const mutatingAdminionControllers = [
+    'cert-manager-webhook',
+    'cnpg-mutating-webhook-configuration',
+    'istio-sidecar-injector',
+    'webhook.domainmapping.serving.knative.dev',
+    'webhook.istio.networking.internal.knative.dev',
+    'webhook.pipeline.tekton.dev',
+    'webhook.serving.knative.dev',
+  ]
+
+  await Promise.allSettled(
+    mutatingAdminionControllers.map(async (val) =>
+      stream(nothrow($`kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io ${val}`), debugStream),
+    ),
+  )
+
   const templateOutput: string = output.stdout
   writeFileSync(templateFile, templateOutput)
   await stream(nothrow($`kubectl delete -f ${templateFile}`), debugStream)
@@ -63,9 +105,7 @@ const destroyAll = async () => {
     'jaegers.jaegertracing.io',
     'kiali.io',
     'knative.dev',
-    'kubeapps.com',
     'monitoring.coreos.com',
-    'operators.coreos.com',
     'vault.banzaicloud.com',
   ]
   const kubeCRDString: string = (await $`kubectl get crd`).stdout.trim()
@@ -81,11 +121,6 @@ const destroyAll = async () => {
     .filter(Boolean)
   d.info('Our CRDs will be removed: ', allOurCRDS)
   await Promise.allSettled(allOurCRDS.map(async (val) => stream(nothrow($`kubectl delete crd ${val}`), debugStream)))
-  d.info('Removing problematic api service: v1.packages.operators.coreos.com...')
-  await stream(
-    nothrow($`kubectl delete apiservices.apiregistration.k8s.io v1.packages.operators.coreos.com`),
-    debugStream,
-  )
   d.log('Uninstalled otomi!')
 }
 

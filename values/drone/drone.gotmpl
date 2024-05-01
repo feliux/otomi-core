@@ -59,9 +59,11 @@ server:
     {{- end }}
     {{- if eq $provider "github" }}
     DRONE_ADMISSION_ENDPOINT: http://drone-admit-members:80
-    DRONE_ADMISSION_SECRET: {{ $d | get "sharedSecret" (randAlpha 32) }}
+    DRONE_ADMISSION_SECRET: {{ $d | get "sharedSecret" }}
     {{- end }}
-
+    DRONE_WEBHOOK_ENDPOINT: http://otomi-api.otomi/drone
+    DRONE_WEBHOOK_SECRET: {{ $d | get "sharedSecret" }}
+  strategyType: Recreate
 agent:
   annotations:
     policy.otomi.io/ignore: psp-allowed-users,psp-privileged,psp-host-filesystem,banned-image-tags

@@ -21,7 +21,6 @@
 {{- $domainSuffix := $v | get "cluster.domainSuffix" nil }}
 {{- $provider := $v.cluster.provider }}
 {{- $droneProvider := $a.drone.sourceControl.provider }}
-{{- $hasSops := hasKey $v "kms.sops.provider" }}
 {{- $isManaged := has $provider (list "aws" "azure" "google") }}
 {{- $issuer := $cm | get "issuer" "" }}
 {{- $untrustedCA := or (eq $issuer "custom-ca") (and (eq $issuer "letsencrypt") (eq ($cm | get "stage" "") "staging")) }}
@@ -59,16 +58,18 @@ environments:
           oidcBaseUrlBackchannel: {{ $oidcBaseUrlBackchannel}}
           oidcWellKnownUrl: {{ $oidcWellKnownUrl }}
           oidcWellKnownUrlBackchannel: {{ $oidcWellKnownBackchannel}}
+          giteaDomain: {{ printf "gitea.%s" $domainSuffix }}
+          keycloakDomain: {{ printf "keycloak.%s" $domainSuffix }}
         apps:
-          aws-alb-ingress-controller:
-            enabled: {{ and (eq $provider "aws") $v.otomi.hasCloudLB }}
+          argocd:
+            enabled: true
           aws-ebs-csi-driver:
-            enabled: false # {{ eq $provider "aws" }}
-          {{- if and (eq $issuer "letsencrypt") (not (hasKey $cm "stage")) }}
+            enabled: false
           cert-manager:
             enabled: true
+            {{- if and (eq $issuer "letsencrypt") (not (hasKey $cm "stage")) }}
             stage: production
-          {{- end }}
+            {{- end }}
           cluster-autoscaler:
             enabled: {{ $a | get "cluster-autoscaler.enabled" (has $provider (list "aws")) }}
           {{- if eq $droneProvider "gitea" }}
@@ -85,35 +86,29 @@ environments:
           external-dns:
             enabled: {{ $v.otomi.hasExternalDNS }}
           external-secrets:
-            enabled: {{ $a | get "vault.enabled" false }}
+            # may be enabled without local vault, so be sure to check for true and not just if it is set
+            enabled: {{ or (eq ($a | get "external-secrets.enabled") true) ($a | get "vault.enabled" false) }}
           harbor:
-            adminPassword: {{ $a | get "gitea.adminPassword" $v.otomi.adminPassword }}
+            adminPassword: {{ $a | get "harbor.adminPassword" $v.otomi.adminPassword }}
             registry:
               credentials:
                 password: {{ $a | get "harbor.registry.credentials.password" $v.otomi.adminPassword }}
           gatekeeper:
-            enabled: {{ or ($a | get "gatekeeper.enabled" false) (hasKey $v.otomi "nodeSelector") }}
+            enabled: {{ or ($a | get "gatekeeper.enabled" false) (not (empty ($v.otomi.nodeSelector))) }}
           gitea:
             enabled: {{ and (eq $droneProvider "gitea") (eq ($a | get "drone.sourceControl.gitea.server" $giteaUrl) $giteaUrl) }}
             adminPassword: {{ $a | get "gitea.adminPassword" $v.otomi.adminPassword }}
-          host-mods:
-            enabled: {{ $a | get "host-mods.enabled" $untrustedCA }}
-          ingress-azure:
-            enabled: {{ and (eq $provider "azure") $v.otomi.hasCloudLB (not $v.azure.appgw.isManaged) }}
           keycloak:
             enabled: true
             address: {{ $keycloakBaseUrl }}
             adminPassword: {{ $a | get "keycloak.adminPassword" $v.otomi.adminPassword }}
-          kured:
-            enabled: {{ $a | get "kured.enabled" (has $provider (list "azure")) }}
           metrics-server:
-            enabled: {{ $a | get "metrics-server.enabled" (has $provider (list "custom" "aws" "digitalocean")) }}
+            enabled: {{ $a | get "metrics-server.enabled" (has $provider (list "custom" "aws" "digitalocean" "linode")) }}
           prometheus-msteams:
             enabled: {{ and ($a | get "alertmanager.enabled" false) (or (has "msteams" ($v | get "alerts.receivers" list)) (has "msteams" ($v | get "home.receivers" list))) }}
           snapshot-controller:
-            enabled: false #{{ eq $provider "aws" }}
-          tigera-operator:
-            enabled: {{ $a | get "tigera-operator.enabled" (eq $provider "aws") }}
+            # TODO: upgrade snapshot-controller from piraeus-charts/snapshot-controller and toggle below:
+            enabled: false
         ingress:
           classes:
           - {{- $v.ingress.platformClass | toYaml | nindent 12 }}

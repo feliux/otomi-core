@@ -1,0 +1,155 @@
+{{- $v := .Values }}
+{{- $a := $v.apps.argocd }}
+{{- $k := $v.apps.keycloak }}
+global:
+  domain: argocd.{{ $v.cluster.domainSuffix }}
+  {{- with $v.otomi | get "nodeSelector" nil }}
+  nodeSelector:
+    {{- range $key, $val := . }}
+    {{ $key }}: {{ $val }}
+    {{- end }}
+  {{- end }}
+applicationSet:
+  autoscaling:
+    enabled: true
+  resources:
+    limits:
+      cpu: '500m'
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256M
+
+controller:
+  autoscaling:
+    enabled: {{ $a.autoscaling.enabled }}
+    maxReplicas: {{ $a.autoscaling.maxReplicas }}
+    minReplicas: {{ $a.autoscaling.minReplicas }}
+    targetCPUUtilizationPercentage: {{ $a.autoscaling.targetCPUUtilizationPercentage }}
+
+  resources:
+    {{- with $a | get "resources.controller" nil }}
+      {{- toYaml .| nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    {{- end }}  
+dex:
+  enabled: false
+notifications:
+  # -- Enable notifications controller
+  enabled: true
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256M
+redis:
+  resources:
+    {{- with $a | get "resources.redis" nil }}
+      {{- toYaml .| nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256M
+    {{- end }}
+repoServer:
+  autoscaling:
+    enabled: {{ $a.autoscaling.enabled }}
+    maxReplicas: {{ $a.autoscaling.maxReplicas }}
+    minReplicas: {{ $a.autoscaling.minReplicas }}
+    targetCPUUtilizationPercentage: {{ $a.autoscaling.targetCPUUtilizationPercentage }}
+
+  resources:
+    {{- with $a | get "resources.repo" nil }}
+      {{- toYaml .| nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256M
+    {{- end }}  
+server:
+  autoscaling:
+    enabled: {{ $a.autoscaling.enabled }}
+    maxReplicas: {{ $a.autoscaling.maxReplicas }}
+    minReplicas: {{ $a.autoscaling.minReplicas }}
+    targetCPUUtilizationPercentage: {{ $a.autoscaling.targetCPUUtilizationPercentage }}
+
+  resources:
+    {{- with $a | get "resources.server" nil }}
+      {{- toYaml .| nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256M
+    {{- end }}  
+configs:
+  # General Argo CD configuration
+  ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml
+  cm:
+    admin.enabled: "true"
+    application.instanceLabelKey: app.kubernetes.io/instance
+    application.resourceTrackingMethod: annotation
+    ga.anonymizeusers: "false"
+    statusbadge.enabled: "false"
+    url: https://argocd.{{ $v.cluster.domainSuffix }}
+    users.anonymous.enabled: "false"
+    # Note that the clientSecret is not actually used
+    # as for now oauth2-proxy handles the login
+    oidc.config: |
+      name: Otomi
+      issuer: {{ $v._derived.oidcBaseUrl }}
+      clientID: {{ $k.idp.clientID }}
+      clientSecret: '$oidc.clientSecret'
+      requestedScopes:
+        - openid
+        - profile
+        - email
+      {{- if $v._derived.untrustedCA }}
+      rootCA: |
+        {{- $v._derived.caCert | nindent 8 }}
+      {{- end }}
+
+  {{- if $v._derived.untrustedCA }}
+  tls:
+    certificates:
+      gitea.{{ $v.cluster.domainSuffix }}: |
+        {{- $v._derived.caCert | nindent 8 }}
+  {{- end }}
+
+  secret:
+    extra:
+      oidc.clientSecret: {{ $k.idp.clientSecret }}
+  params:
+    server.insecure: true # nginx terminates tls
+
+  rbac:
+    policy.csv: |
+      # image updater
+      p, role:image-updater, applications, get, */*, allow
+      p, role:image-updater, applications, update, */*, allow
+      g, image-updater, role:image-updater
+      # admin
+      g, admin, role:admin
+    {{- if $v.otomi.isMultitenant }}
+    policy.default: ''
+    {{- else }}
+      # not multitenant, make team-admin admin and keep global read-only
+      g, team-admin, role:admin
+    policy.default: role:readonly
+    {{- end }}

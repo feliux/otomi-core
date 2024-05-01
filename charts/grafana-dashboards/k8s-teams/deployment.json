@@ -726,8 +726,8 @@
     "list": [
       {
         "current": {
-          "text": "Prometheus",
-          "value": "Prometheus"
+          "text": "Prometheus-platform",
+          "value": "Prometheus-platform"
         },
         "hide": 0,
         "includeAll": false,
@@ -769,7 +769,7 @@
         "datasource": "$datasource",
         "definition": "",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Deployment",
         "multi": false,
         "name": "deployment_name",
